@@ -77,6 +77,7 @@ type
     Status: TLabel;
     Label1: TLabel;
     OCBtn: TSpeedButton;
+    SeparateCheck: TCheckBox;
     WVWindowParent1: TWVWindowParent;
     procedure CancelBtnClick(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
@@ -119,7 +120,8 @@ type
     function ParsePage(Page: string): Boolean;
     procedure LoadEachPage;
     procedure ParseShort(Page: string);
-    procedure ParseChapter(MainPage: string);
+    procedure ParseChapter(MainPage:string);
+    procedure SaveSeparateFiles;
     function GetNovelStatus(MainPage: string): string;
     function GetHTMLSrc(aURL: string; Mode: integer): string;
   public
@@ -676,6 +678,63 @@ begin
   end;
 end;
 
+procedure THameln.SaveSeparateFiles;
+var
+  i, ChapNum: integer;
+  BaseFileName, ChapTitle, line: string;
+  ChapterContent: TStringList;
+begin
+  BaseFileName := ChangeFileExt(FileName, ''); // .txt拡張子を削除
+  if not DirectoryExists(BaseFileName) then
+    CreateDir(BaseFileName);
+
+  ChapterContent := TStringList.Create;
+  try
+    ChapterContent.WriteBOM := True;
+    ChapNum := 0;
+    ChapTitle := '000-概要'; // 最初のファイル（小説情報）
+
+    // TextPageをスキャンして章ごとにファイルを保存
+    for i := 0 to TextPage.Count - 1 do
+    begin
+      line := TextPage.Strings[i];
+
+      // 新しい章の開始を検出 (中見出しまたは大見出し)
+      if (Pos(AO_SEB, line) > 0) or (Pos(AO_CPB, line) > 0) then
+      begin
+        // 前のブロック(概要または前の章)をファイルに保存
+        if ChapterContent.Count > 0 then
+        begin
+          // ファイルの保存方法を変更
+          ChapterContent.SaveToFile(BaseFileName + PathDelim + PathFilter(ChapTitle) + '.txt', TEncoding.UTF8);
+          ChapterContent.Clear;
+        end;
+        
+        // 次の準備
+        Inc(ChapNum);
+        // ファイル名のための章タイトルを抽出
+        ChapTitle := ReplaceRegExpr(AO_SEB, line, '');
+        ChapTitle := ReplaceRegExpr(AO_SEE, ChapTitle, '');
+        ChapTitle := ReplaceRegExpr(AO_CPB, ChapTitle, '');
+        ChapTitle := ReplaceRegExpr(AO_CPE, ChapTitle, '');
+        // フォーマットの変更
+        ChapTitle := Format('%.3d-', [ChapNum]) + Trim(ChapTitle);
+      end;
+
+      ChapterContent.Add(line);
+    end;
+
+    // 最後の章を保存
+    if ChapterContent.Count > 0 then
+    begin
+      // ファイルの保存方法を変更
+      ChapterContent.SaveToFile(BaseFileName + PathDelim + PathFilter(ChapTitle) + '.txt', TEncoding.UTF8);
+    end;
+  finally
+    ChapterContent.Free;
+  end;
+end;
+
 // 小説の連載状況をチェックする
 function THameln.GetNovelStatus(MainPage: string): string;
 var
@@ -965,10 +1024,18 @@ begin
     if FileName <> '' then
     begin
       try
-        TextPage.WriteBOM := True;      // DelphiとLazarusでデフォルトの定義が違うため明示的に指定する
         LogFile.WriteBOM  := True;
-        TextPage.SaveToFile(Filename, TEncoding.UTF8);
         LogFile.SaveToFile(ChangeFileExt(FileName, '.log'), TEncoding.UTF8);
+
+        if SeparateCheck.Checked then
+        begin
+          SaveSeparateFiles;
+        end else
+        begin
+          TextPage.WriteBOM := True;
+          TextPage.SaveToFile(Filename, TEncoding.UTF8);
+        end;
+
         if Cancel then
           Status.Caption := Status.Caption + '・・中止'
         else
