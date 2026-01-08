@@ -13,7 +13,7 @@ Lazarus (3.0以降)のプロジェクトを開くからhamelndlw.lpiを開いて
 尚、ビルドするためにはTRegExprとWebView4Delphi、ShimpleHTMLParserが必要です。<br>
 + TRegExprは https://github.com/andgineer/TRegExpr から取得してください。その上でsrcフォルダー内のregexpr.pas、regexpr_compilers.inc、regexpr_unicodedata.pasの3つのファイルをkakuyomudlプロジェクトソースファイルと同じフォルダにコピーして下さい。
 + WebView4Delphiは https://github.com/salvadordf/WebView4Delphi から取得して、パッケージファイル(.lpk)を開くからインストールして下さい。
-+ ShimpleHTMLParserはhttps://github.com/minouejapan/SimpleHTMLParserから取得して下さい。
++ ShimpleHTMLParserはhttps://github.com/minouejapan/SimpleHTMLParser から取得して下さい。
 
 #### バージョン情報を編集したい場合
 　verinfow.rcファイルをテキストファイルとして開いて編集してください。尚、編集後は文字コードをShift-JISとして保存する必要があります。<br>
