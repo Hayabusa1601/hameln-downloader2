@@ -16,9 +16,9 @@ uses
 
 {$R *.res}
 
-var
-  hMutex: THandle;
-	smem: ^TShareMem;
+//var
+//  hMutex: THandle;
+//	smem: ^TShareMem;
 
 begin
 {$IFDEF FPC}

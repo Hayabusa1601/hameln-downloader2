@@ -1,12 +1,12 @@
 object Hameln: THameln
   Left = 315
-  Height = 77
+  Height = 101
   Top = 31
   Width = 802
   BorderIcons = [biSystemMenu]
   BorderStyle = bsSingle
   Caption = 'ハーメルン小説ダウンローダー '
-  ClientHeight = 77
+  ClientHeight = 101
   ClientWidth = 802
   Color = clBtnFace
   Font.CharSet = SHIFTJIS_CHARSET
@@ -26,7 +26,7 @@ object Hameln: THameln
   object Panel1: TPanel
     Left = 0
     Height = 0
-    Top = 77
+    Top = 101
     Width = 802
     Align = alClient
     ClientHeight = 0
@@ -45,20 +45,20 @@ object Hameln: THameln
   end
   object Panel2: TPanel
     Left = 0
-    Height = 79
+    Height = 103
     Top = 0
     Width = 802
     Align = alTop
     BevelOuter = bvNone
-    ClientHeight = 79
+    ClientHeight = 103
     ClientWidth = 802
     ParentBackground = False
     TabOrder = 1
     object NvTitle: TLabel
       Left = 16
       Height = 15
-      Top = 58
-      Width = 595
+      Top = 56
+      Width = 400
       AutoSize = False
       Caption = '作品タイトル：'
       Color = clBtnFace
@@ -92,13 +92,21 @@ object Hameln: THameln
       ParentColor = False
     end
     object OCBtn: TSpeedButton
-      Left = 756
+      Left = 768
       Height = 22
-      Top = 56
+      Top = 80
       Width = 23
       Caption = '▼'
       Flat = True
       OnClick = OCBtnClick
+    end
+    object SeparateCheck: TCheckBox
+      Left = 424
+      Height = 19
+      Top = 80
+      Width = 242
+      Caption = '話ごとにファイルを分割する'
+      TabOrder = 3
     end
     object CancelBtn: TButton
       Left = 708
