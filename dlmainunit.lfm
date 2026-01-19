@@ -58,7 +58,7 @@ object Hameln: THameln
       Left = 16
       Height = 15
       Top = 56
-      Width = 400
+      Width = 596
       AutoSize = False
       Caption = '作品タイトル：'
       Color = clBtnFace
