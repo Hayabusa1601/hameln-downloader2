@@ -2,6 +2,7 @@ program hamelndlw;
 
 {$IFDEF FPC}
   {$MODE Delphi}
+  {$CODEPAGE UTF8}
 {$ENDIF}
 
 {$TYPEINFO OFF}
@@ -12,18 +13,13 @@ uses
 {$ELSE}
   Forms, Interfaces,
 {$ENDIF}
-  nvdllib, dlmainunit;
+  nvdllib, dlmainunit, SHParser;
 
 {$R *.res}
 
-var
-  hMutex: THandle;
-	smem: ^TShareMem;
 
 begin
-{$IFDEF FPC}
-{$ENDIF}
-  Application.Scaled:=True;
+			Application.Scaled:=True;
   Application.Initialize;
   Application.MainFormOnTaskbar := True;
   Application.CreateForm(THameln, Hameln);

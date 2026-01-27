@@ -1,7 +1,13 @@
 ﻿(*
   ハーメルン小説ダウンローダー
 
-  2.11 2025/10/02  短編の処理を旧来のものに戻した
+  2.23 2026/01/22 SimpleHTMLParserにメモリアクセス違反対応の修正を加えたためver2.23として再ビルドした
+  2.22 2026/01/21 SimpleHTMLParserにメモリアクセス違反対応の修正を加えたためver2.22として再ビルドした
+  2.21 2026/01/20 SimpleHTMLParserにメモリアクセス違反対応の修正を加えたためver2.21として再ビルドした
+  2.2 2026/01/15  各話タイトルを取得出来ずにDL途中で終了する場合があった不具合があったため、
+                  章・話タイトルを各話ページからではなくトップページの目次から取得するように変更した
+  2.12 2026/01/08 Hayabusa1601氏から各話毎に分割保存するオプションを追加したpull-reqがあったためマージ
+  2.11 2025/10/02 短編の処理を旧来のものに戻した
   2.0 2025/09/27  HTML構文解析を力技からSHParser(SimpleHTMLParser)による解析に変更した
                   本文の一部を取得出来ない場合があった不具合を修正した
                   前書き・後書きにある脚注を取得出来ていなかった不具合を修正した
@@ -77,6 +83,7 @@ type
     Status: TLabel;
     Label1: TLabel;
     OCBtn: TSpeedButton;
+    SeparateCheck: TCheckBox;
     WVWindowParent1: TWVWindowParent;
     procedure CancelBtnClick(Sender: TObject);
     procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
@@ -119,7 +126,8 @@ type
     function ParsePage(Page: string): Boolean;
     procedure LoadEachPage;
     procedure ParseShort(Page: string);
-    procedure ParseChapter(MainPage: string);
+    procedure ParseChapter(MainPage:string);
+    procedure SaveSeparateFiles;
     function GetNovelStatus(MainPage: string): string;
     function GetHTMLSrc(aURL: string; Mode: integer): string;
   public
@@ -227,10 +235,17 @@ begin
   tmp := UTF8StringReplace(tmp,  '<rp>（</rp>', '', [rfReplaceAll]);
   tmp := UTF8StringReplace(tmp,  '<rp>）</rp>', '', [rfReplaceAll]);
   tmp := UTF8StringReplace(tmp,  '<rb>', '', [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp, '<rp >(</rp>', '', [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '<rp >)</rp>', '', [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '<rp >（</rp>', '', [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '<rp >）</rp>', '', [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '<rb >', '', [rfReplaceAll]);
   tmp := UTF8StringReplace(tmp,  '</rb>', '', [rfReplaceAll]);
   // rubyタグを青空文庫形式に変換
   tmp := UTF8StringReplace(tmp,  '<ruby>', AO_RBI, [rfReplaceAll]);
   tmp := UTF8StringReplace(tmp,  '<rt>',   AO_RBL, [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '<ruby >', AO_RBI, [rfReplaceAll]);
+  tmp := UTF8StringReplace(tmp,  '<rt >',   AO_RBL, [rfReplaceAll]);
   tmp := UTF8StringReplace(tmp,  '</rt></ruby>', AO_RBR, [rfReplaceAll]);
 
   Result := tmp;
@@ -320,29 +335,9 @@ begin
     header := shp.FindRegex('<div id="maegaki">', '<div id="maegaki_open">');
     // 後書き
     footer := shp.FindRegex('<div id="atogaki">', '<div id="atogaki_open">');
-    // 章・話タイトル
-    sect := shp.FindRegex('<div style=.*?>\d{1,5} / \d{1,5}</div><span style="font-size:120%">', '</span>');
-    if sect = '' then  // シンプルなタグ構成の場合がある
-      sect := shp.FindRegex('</div><span style="font-size:120%">', '</span><span');
-    if sect <> '' then
-    begin
-      // 章タイトルが含まれていれば分離する
-      sp := UTF8Pos(#13#10, sect);
-      if sp > 0 then
-      begin
-        chapt := Trim(UTF8Copy(sect, 1, sp - 1));
-        sect  := Trim(UTF8Copy(sect, sp + 2, Length(sect)));
-      end else
-        sect := Trim(sect);
-    end else
-      Result := False;
-   finally
+	 finally
     shp.Free;
   end;
-
-  if chapt <> '' then
-    TextPage.Add(AO_CPB + chapt + AO_CPE);
-  TextPage.Add(AO_SEB + sect + AO_SEE);
   if header <> '' then
     TextPage.Add(AO_KKL + #13#10 + header + #13#10 + AO_KKR + #13#10);
   if body <> '' then
@@ -355,17 +350,20 @@ begin
   TextPage.Add(AO_PB2);
   TextPage.Add('');
 
-  if body = '' then
+  if Length(body) = 0 then
   begin
+    Status.Caption := 'エラー：エピソード本文を取得出来ませんでした.';
+    TextPage.Add('エラー：エピソード本文を取得出来なかったためDLを中断しました.');
     Result := False;
-  end;
+	end;
 end;
 
 // 各話URLリストをもとに各話ページを読み込んで本文を取り出す
 procedure THameln.LoadEachPage;
 var
   i, n, cnt, sc, rt: integer;
-  line, stat, urla: string;
+  line, stat, einfo, schapt, stitle, surl: string;
+  einfol: TStringList;
 begin
   cnt := PageList.Count;
   if StartN > 0 then
@@ -374,71 +372,85 @@ begin
     i := 0;
   n := 1;
   sc := cnt - i;
-  // 最初のアクセスが空振りするのでダミでーアクセスしておく
-  urla := PageList.Strings[0];
-  line := GetHTMLSrc(urla, 0);
-  while i < cnt do
-  begin
-    urla := PageList.Strings[i];
-    URL.Text := urla;
-    PrevURL := '';
-    NextURL := '';
-    // TEgdeBrowserはNavigate(URL)してもページを更新してくれない場合があるため
-    // エピソードページの取得を判定するために前後ページへのリンクURLを保存する
-    if cnt > 1 then
+  einfol := TStringList.Create;
+  einfol.StrictDelimiter := True;
+  einfol.Delimiter := ',';
+  try
+    // 最初のアクセスが空振りするのでダミでーアクセスしておく
+    einfol.CommaText := PageList.Strings[0];
+    surl := einfol.strings[0];
+    line := GetHTMLSrc(surl, 0);
+    while i < cnt do
     begin
-      if i > 0 then
-        PrevURL := '<a href="./' + IntToStr(n - 1)  + '.html"><< 前の話</a>';
-      if i < cnt then
-        NextURL := '<a href="./' + IntToStr(n + 1) + '.html" class="next_page_link">次の話 >></a>';
-    end;
-    line := GetHTMLSrc(urla, 0);
-    rt := 1;
-    // 前後ページへのリンクURLがあるかチェックしてない場合は再取得を繰り返す
-    // 尚、5回繰り返しても取得出来なければエラーとする
-    if cnt > 1 then
-    begin
-      while ((i = 0) and (UTF8Pos(NextURL, line) = 0))
-         or ((i > 0) and (UTF8Pos(PrevURL, line) = 0)) do
+      einfol.CommaText := PageList.Strings[i];
+      schapt := einfol.Strings[0];
+      stitle := einfol.Strings[1];
+      surl   := einfol.Strings[2];
+      if schapt <> '' then
+        TextPage.Add(AO_CPB + schapt + AO_CPE); // 章タイトルがあれば追加
+      TextPage.Add(AO_SEB + stitle + AO_SEE);   // 話タイトルを追加
+      URL.Text := surl;
+      PrevURL := '';
+      NextURL := '';
+      // TEgdeBrowserはNavigate(URL)してもページを更新してくれない場合があるため
+      // エピソードページの取得を判定するために前後ページへのリンクURLを保存する
+      if cnt > 1 then
       begin
-        Status.Caption := 'リトライ中(' + IntToStr(rt) + ')';
-        // リトライを5回行っても駄目だった場合はエラーとする
-        if rt = 5 then
-        begin
-          TextPage.Add('★エラー：リトライ回数超過');
-          line := '';
+		    if i > 0 then
+		      PrevURL := '<a href="./' + IntToStr(n - 1)  + '.html"><< 前の話</a>';
+		    if i < cnt then
+		      NextURL := '<a href="./' + IntToStr(n + 1) + '.html" class="next_page_link">次の話 >></a>';
+		  end;
+		  line := GetHTMLSrc(surl, 0);
+		  rt := 1;
+		  // 前後ページへのリンクURLがあるかチェックしてない場合は再取得を繰り返す
+		  // 尚、5回繰り返しても取得出来なければエラーとする
+		  if cnt > 1 then
+		  begin
+		    while ((i = 0) and (UTF8Pos(NextURL, line) = 0))
+		       or ((i > 0) and (UTF8Pos(PrevURL, line) = 0)) do
+		    begin
+		      Status.Caption := 'リトライ中(' + IntToStr(rt) + ')';
+		      // リトライを5回行っても駄目だった場合はエラーとする
+		      if rt = 5 then
+		      begin
+		        TextPage.Add('★エラー：リトライ回数超過');
+		        line := '';
+		        Break;
+		      end;
+		      if Cancel then
+		        Break;
+		      Inc(rt);
+		      Sleep(500);
+		      line := GetHTMLSrc(surl, 0);
+		    end;
+      end;
+
+      if line <> '' then
+      begin
+        if not ParsePage(line) then
           Break;
+        stat := '各話を取得中 [' + Format('%3d', [i + 1]) + '/' + Format('%3d', [cnt]) + '(' + Format('%d', [(n * 100) div sc]) + '%)]';
+        Status.Caption := stat;
+        Elapsed.Caption := '経過時間：' + FormatDateTime('nn:ss', Now - StartTime);
+        Application.ProcessMessages;
+        if hWnd <> 0 then
+        begin
+          SendMessage(hWnd, WM_DLINFO, n, sc{1});
+          Application.ProcessMessages;
         end;
         if Cancel then
           Break;
-        Inc(rt);
-        Sleep(500);
-        line := GetHTMLSrc(urla, 0);
+        // サーバーへの負担を減らすため1秒のインターバルを入れる
+        Sleep(500);   // Sleep処理を削除したり、この数値を小さくすることを禁止します
       end;
-    end;
-
-    if line <> '' then
-    begin
-      if not ParsePage(line) then
-        Break;
-      stat := '各話を取得中 [' + Format('%3d', [i + 1]) + '/' + Format('%3d', [cnt]) + '(' + Format('%d', [(n * 100) div sc]) + '%)]';
-      Status.Caption := stat;
-      Elapsed.Caption := '経過時間：' + FormatDateTime('nn:ss', Now - StartTime);
       Application.ProcessMessages;
-      if hWnd <> 0 then
-      begin
-        SendMessage(hWnd, WM_DLINFO, n, sc{1});
-        Application.ProcessMessages;
-      end;
-      if Cancel then
-        Break;
-      // サーバーへの負担を減らすため1秒のインターバルを入れる
-      Sleep(500);   // Sleep処理を削除したり、この数値を小さくすることを禁止します
+      Inc(i);
+      Inc(n);
     end;
-    Application.ProcessMessages;
-    Inc(i);
-    Inc(n);
-  end;
+	finally
+    einfol.Free;
+	end;
 end;
 
 // 短編専用処理
@@ -585,9 +597,12 @@ end;
 procedure THameln.ParseChapter(MainPage: string);
 var
   shp: TSHParser;
-  i: integer;
+  i, icnt: integer;
   htmlsrc, title, auther, authurl,
-  header, sendstr, aurl: string;
+  header, sendstr, aurl,
+  eblock, einfo, etmp,
+  stitle, surl: string;
+  einfol: TStringList;
   ws: WideString;
 begin
   title := ''; auther := ''; authurl := ''; header := '';
@@ -634,10 +649,45 @@ begin
       end;
       // 前書き
       header := shp.FindRegex('</div><div class="ss">', '<hr style="margin:20px 0px;"></div>');
-      //目次
-      for i := 1 to PageN do
-        PageList.Add(aurl + '/' + IntToStr(i) + '.html');
-
+      // 各話の情報を取得してPageListに保存する
+      eblock := shp.Find('table', False);  // <tbody>を切り出す
+      if eblock <> '' then
+      begin
+        eblock := ReplaceRegExpr('width=.*?>', eblock, '');
+        eblock := ReplaceRegExpr('</tr>', eblock, '</tr>'#13#10); // TStringListに代入するため</tr>毎に','を入れる
+        einfol := TStringList.Create;
+        try
+          einfol.Text := eblock;
+          i := 0;
+          icnt := einfol.Count;
+          while i < icnt do
+          begin
+            einfo := '';
+            etmp := einfol.Strings[i];
+            // 章タイトル
+            if Pos('<td colspan=', etmp) > 0 then
+            begin
+              einfo := ChangeRuby(shp.GetText(etmp));
+              Inc(i);
+              etmp := einfol.Strings[i];
+					  end;
+            // 各話タイトルとURL
+					  if Pos('<span id=', etmp) > 0 then
+            begin
+              stitle := shp.GetMaskedContent(etmp, '<tr.*?<a href=.*?>', '</a>.*?</tr>');
+              surl   := aurl + shp.GetMaskedContent(etmp, '<tr.*?<a href=\.', 'style=.*?</tr>');
+              einfo  := einfo + ',' + ChangeRuby(stitle) + ',' + ChangeRuby(surl);
+              PageList.Add(einfo);
+              Inc(i);
+              if i = icnt then
+                Break;
+              etmp := einfol.Strings[i];
+					  end;
+				  end;
+			  finally
+          einfol.Free;
+			  end;
+      end;
       if PageN = 0 then
         Status.Caption := 'トップページから情報を取得出来ませんでした.'
       else begin
@@ -656,7 +706,6 @@ begin
         LogFile.Add('あらすじ：');
         LogFile.Add(header);
         LogFile.Add('');
-
         // Naro2mobiから呼び出された場合は進捗状況をSendする
         if hWnd <> 0 then
         begin
@@ -673,6 +722,63 @@ begin
     finally
      shp.Free;
     end;
+  end;
+end;
+
+procedure THameln.SaveSeparateFiles;
+var
+  i, ChapNum: integer;
+  BaseFileName, ChapTitle, line: string;
+  ChapterContent: TStringList;
+begin
+  BaseFileName := ChangeFileExt(FileName, ''); // .txt拡張子を削除
+  if not DirectoryExists(BaseFileName) then
+    CreateDir(BaseFileName);
+
+  ChapterContent := TStringList.Create;
+  try
+    ChapterContent.WriteBOM := True;
+    ChapNum := 0;
+    ChapTitle := '000-概要'; // 最初のファイル（小説情報）
+
+    // TextPageをスキャンして章ごとにファイルを保存
+    for i := 0 to TextPage.Count - 1 do
+    begin
+      line := TextPage.Strings[i];
+
+      // 新しい章の開始を検出 (中見出しまたは大見出し)
+      if (Pos(AO_SEB, line) > 0) or (Pos(AO_CPB, line) > 0) then
+      begin
+        // 前のブロック(概要または前の章)をファイルに保存
+        if ChapterContent.Count > 0 then
+        begin
+          // ファイルの保存方法を変更
+          ChapterContent.SaveToFile(BaseFileName + PathDelim + PathFilter(ChapTitle) + '.txt', TEncoding.UTF8);
+          ChapterContent.Clear;
+        end;
+        
+        // 次の準備
+        Inc(ChapNum);
+        // ファイル名のための章タイトルを抽出
+        ChapTitle := ReplaceRegExpr(AO_SEB, line, '');
+        ChapTitle := ReplaceRegExpr(AO_SEE, ChapTitle, '');
+        ChapTitle := ReplaceRegExpr(AO_CPB, ChapTitle, '');
+        ChapTitle := ReplaceRegExpr(AO_CPE, ChapTitle, '');
+        // フォーマットの変更
+        ChapTitle := Format('%.3d-', [ChapNum]) + Trim(ChapTitle);
+      end;
+
+      ChapterContent.Add(line);
+    end;
+
+    // 最後の章を保存
+    if ChapterContent.Count > 0 then
+    begin
+      // ファイルの保存方法を変更
+      ChapterContent.SaveToFile(BaseFileName + PathDelim + PathFilter(ChapTitle) + '.txt', TEncoding.UTF8);
+    end;
+  finally
+    ChapterContent.Free;
   end;
 end;
 
@@ -965,10 +1071,18 @@ begin
     if FileName <> '' then
     begin
       try
-        TextPage.WriteBOM := True;      // DelphiとLazarusでデフォルトの定義が違うため明示的に指定する
         LogFile.WriteBOM  := True;
-        TextPage.SaveToFile(Filename, TEncoding.UTF8);
         LogFile.SaveToFile(ChangeFileExt(FileName, '.log'), TEncoding.UTF8);
+
+        if SeparateCheck.Checked then
+        begin
+          SaveSeparateFiles;
+        end else
+        begin
+          TextPage.WriteBOM := True;
+          TextPage.SaveToFile(Filename, TEncoding.UTF8);
+        end;
+
         if Cancel then
           Status.Caption := Status.Caption + '・・中止'
         else
